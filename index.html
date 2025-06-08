@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to AI HHTIP Version 1.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Màu nền xám nhạt */
+        }
+        #chatbox::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chatbox::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        #chatbox::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        #chatbox::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .user-message {
+            background-color: #3b82f6; /* Màu xanh dương cho tin nhắn người dùng */
+            color: white;
+        }
+        .gemini-message {
+            background-color: #ffffff; /* Màu trắng cho tin nhắn Gemini */
+            color: #1f2937; /* Màu chữ xám đậm */
+            border: 1px solid #e5e7eb; /* Viền xám nhạt */
+        }
+        .message-bubble {
+            max-width: 75%;
+            padding: 0.75rem 1rem; /* 12px 16px */
+            border-radius: 0.75rem; /* 12px */
+            margin-bottom: 0.5rem; /* 8px */
+            word-wrap: break-word;
+        }
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl bg-white shadow-xl rounded-lg flex flex-col" style="height: 80vh;">
+        <!-- Header -->
+        <header class="bg-blue-600 text-white p-4 rounded-t-lg flex items-center justify-center">
+            <!-- THÊM LOGO TẠI ĐÂY -->
+            <!-- Thay đổi src="logo.png" bằng đường dẫn đến tệp logo của bạn -->
+            <img src="logo.png" alt="Logo" class="h-10 w-10 mr-4 rounded-full">
+            <h1 class="text-2xl font-semibold">Chatbot HHTIP Demo</h1>
+        </header>
+
+        <!-- Chat messages -->
+        <div id="chatbox" class="flex-1 p-6 space-y-4 overflow-y-auto">
+            <!-- Tin nhắn mẫu từ Gemini -->
+            <div class="flex justify-start">
+                <div class="gemini-message message-bubble">
+                    Xin chào! Bạn muốn hỏi tôi điều gì hôm nay?
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading indicator -->
+        <div id="loadingIndicator" class="hidden p-4 text-center">
+            <div class="loader"></div>
+            <p class="text-sm text-gray-500">Chat bot đang suy nghĩ...</p>
+        </div>
+
+        <!-- Input area -->
+        <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+            <div class="flex items-center space-x-3">
+                <input type="text" id="userInput" class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="Nhập câu hỏi của bạn...">
+                <button id="sendButton" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150">
+                    Gửi
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Lấy các phần tử DOM
+        const chatbox = document.getElementById('chatbox');
+        const userInput = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        let chatHistory = []; // Khởi tạo lịch sử trò chuyện
+
+        // Hàm thêm tin nhắn vào chatbox
+        function addMessage(message, sender) {
+            const messageWrapper = document.createElement('div');
+            const messageBubble = document.createElement('div');
+
+            messageBubble.classList.add('message-bubble');
+            messageBubble.textContent = message;
+
+            if (sender === 'user') {
+                messageWrapper.classList.add('flex', 'justify-end');
+                messageBubble.classList.add('user-message');
+            } else {
+                messageWrapper.classList.add('flex', 'justify-start');
+                messageBubble.classList.add('gemini-message');
+                 // Xóa các thẻ HTML trong tin nhắn của Gemini để tránh lỗi hiển thị
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = message;
+                messageBubble.textContent = tempDiv.textContent || tempDiv.innerText || "";
+
+            }
+            messageWrapper.appendChild(messageBubble);
+            chatbox.appendChild(messageWrapper);
+            chatbox.scrollTop = chatbox.scrollHeight; // Tự động cuộn xuống tin nhắn mới nhất
+        }
+
+        // Hàm gửi tin nhắn và nhận phản hồi từ Gemini
+        async function sendMessage() {
+            const userMessage = userInput.value.trim();
+            if (userMessage === '') return; // Không gửi nếu tin nhắn trống
+
+            addMessage(userMessage, 'user');
+            userInput.value = ''; // Xóa nội dung trong ô input
+            loadingIndicator.classList.remove('hidden'); // Hiển thị chỉ báo tải
+
+            // Thêm tin nhắn người dùng vào lịch sử
+            chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
+
+            try {
+                const payload = {
+                    contents: chatHistory,
+                    // generationConfig: { // Bạn có thể thêm các cấu hình tạo văn bản nếu cần
+                    //     temperature: 0.7,
+                    //     topK: 1,
+                    //     topP: 1,
+                    //     maxOutputTokens: 2048,
+                    // }
+                };
+
+                const apiKey = "AIzaSyANk-Al0h0ts_EKhOcrV1PhnOIrEIcxBLg"; // Để trống nếu dùng gemini-2.0-flash không cần key trong môi trường này
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error("API Error:", errorData);
+                    addMessage(`Lỗi: ${errorData.error?.message || response.statusText || 'Không thể kết nối tới Gemini.'}`, 'gemini');
+                    chatHistory.pop(); // Xóa tin nhắn người dùng cuối nếu API lỗi
+                    return;
+                }
+
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const geminiResponse = result.candidates[0].content.parts[0].text;
+                    addMessage(geminiResponse, 'gemini');
+                    // Thêm phản hồi của Gemini vào lịch sử
+                    chatHistory.push({ role: "model", parts: [{ text: geminiResponse }] });
+                } else {
+                    addMessage('Xin lỗi, tôi không nhận được phản hồi hợp lệ từ Chat BOT.', 'gemini');
+                    console.error("Unexpected API response structure:", result);
+                }
+
+            } catch (error) {
+                console.error('Lỗi khi gửi yêu cầu:', error);
+                addMessage(`Đã xảy ra lỗi: ${error.message}. Vui lòng thử lại.`, 'gemini');
+                // Nếu có lỗi, có thể cân nhắc xóa tin nhắn người dùng cuối khỏi lịch sử nếu nó không được xử lý
+                 if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === "user") {
+                    // Giả sử tin nhắn cuối cùng là của người dùng và chưa có phản hồi từ model
+                 }
+            } finally {
+                loadingIndicator.classList.add('hidden'); // Ẩn chỉ báo tải
+            }
+        }
+
+        // Gán sự kiện cho nút gửi và phím Enter
+        sendButton.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Thông báo ban đầu (có thể giữ lại hoặc xóa)
+        // addMessage("Xin chào! Bạn muốn hỏi tôi điều gì hôm nay?", 'gemini');
+    </script>
+</body>
+</html>
