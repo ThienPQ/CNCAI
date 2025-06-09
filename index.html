@@ -9,6 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -39,7 +40,7 @@
         <div id="chatbox" class="flex-1 p-6 space-y-4 overflow-y-auto">
             <div class="flex justify-start">
                 <div class="gemini-message message-bubble">
-                    Xin chào! Bạn có thể đặt câu hỏi hoặc tải tệp lên để tôi phân tích.
+                    Xin chào! Bạn có thể đặt câu hỏi hoặc tải tệp (.pdf, .docx, .xlsx, .pptx) lên để tôi phân tích.
                 </div>
             </div>
         </div>
@@ -58,11 +59,12 @@
         <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
             <div class="flex items-center space-x-3">
                 <!-- File Upload Button -->
-                <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.xlsx">
-                <button id="uploadButton" class="p-3 text-gray-500 hover:text-blue-600 hover:bg-gray-200 rounded-full transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.xlsx,.xls,.pptx">
+                <button id="uploadButton" class="flex items-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                     </svg>
+                    Tải tệp
                 </button>
                 <input type="text" id="userInput" class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="Nhập câu hỏi của bạn...">
                 <button id="sendButton" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150">
@@ -106,12 +108,16 @@
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 let text = '';
-                if (file.name.endsWith('.pdf')) {
+                const fileName = file.name.toLowerCase();
+
+                if (fileName.endsWith('.pdf')) {
                     text = await extractTextFromPdf(arrayBuffer);
-                } else if (file.name.endsWith('.docx')) {
+                } else if (fileName.endsWith('.docx')) {
                     text = await extractTextFromDocx(arrayBuffer);
-                } else if (file.name.endsWith('.xlsx')) {
+                } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
                     text = await extractTextFromXlsx(arrayBuffer);
+                } else if (fileName.endsWith('.pptx')) {
+                    text = await extractTextFromPptx(arrayBuffer);
                 } else {
                     throw new Error('Định dạng tệp không được hỗ trợ.');
                 }
@@ -129,7 +135,6 @@
         function setFileStatus(message, showLoading) {
             fileStatus.textContent = message;
             fileStatus.classList.remove('hidden');
-            // Optionally add a loading indicator inside the status bar
         }
         
         async function extractTextFromPdf(arrayBuffer) {
@@ -157,6 +162,25 @@
                 const data = XLSX.utils.sheet_to_csv(worksheet);
                 allText += data + '\n\n';
             });
+            return allText;
+        }
+        
+        async function extractTextFromPptx(arrayBuffer) {
+            if (typeof JSZip === 'undefined') {
+                throw new Error('Thư viện JSZip chưa được tải.');
+            }
+            const zip = await JSZip.loadAsync(arrayBuffer);
+            const slideFiles = Object.keys(zip.files).filter(name => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'));
+            let allText = '';
+            
+            const slidePromises = slideFiles.map(fileName => zip.file(fileName).async('string'));
+            const slideContents = await Promise.all(slidePromises);
+
+            for (const slideContent of slideContents) {
+                const textNodes = slideContent.match(/<a:t>.*?<\/a:t>/g) || [];
+                const slideText = textNodes.map(node => node.replace(/<a:t>(.*?)<\/a:t>/, '$1')).join(' ');
+                allText += slideText + '\n';
+            }
             return allText;
         }
 
@@ -189,7 +213,10 @@
 
         async function sendMessage() {
             let userMessage = userInput.value.trim();
-            if (userMessage === '') return;
+            if (userMessage === '' && !uploadedFileContent) return; 
+            if (userMessage === '' && uploadedFileContent) {
+                userMessage = "Tóm tắt hoặc phân tích nội dung của tệp này.";
+            }
             
             addMessage(userMessage, 'user');
             userInput.value = '';
@@ -200,11 +227,10 @@
             if (uploadedFileContent) {
                 promptToSend = `Dựa trên nội dung của tài liệu sau:\n\n--- TÀI LIỆU ---\n${uploadedFileContent}\n--- KẾT THÚC TÀI LIỆU ---\n\nHãy trả lời câu hỏi sau: "${userMessage}"`;
                 addMessage(`Đã sử dụng nội dung từ tệp để trả lời. Để hỏi về một tệp khác, vui lòng tải tệp mới lên.`, 'system');
-                uploadedFileContent = null; // Use the content only once
-                fileStatus.classList.add('hidden'); // Hide status after use
+                uploadedFileContent = null;
+                fileStatus.classList.add('hidden'); 
             }
 
-            // Add user's original message to history for context, model sees the full prompt
             chatHistory.push({ role: "user", parts: [{ text: promptToSend }] });
 
             try {
@@ -239,7 +265,7 @@
             } catch (error) {
                 console.error('Lỗi khi gửi yêu cầu:', error);
                 addMessage(`Đã xảy ra lỗi: ${error.message}. Vui lòng thử lại.`, 'gemini');
-                chatHistory.pop(); // Remove user prompt from history on error
+                chatHistory.pop(); 
             } finally {
                 loadingIndicator.classList.add('hidden');
             }
