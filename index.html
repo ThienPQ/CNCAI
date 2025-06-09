@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trò chuyện với Gemini</title>
+    <title>Trò chuyện với CNCAI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Libraries for file parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.min.js"></script>
@@ -27,12 +27,12 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen p-4">
+<body oncontextmenu="return false;">
 
     <div class="w-full max-w-2xl bg-white shadow-xl rounded-lg flex flex-col" style="height: 80vh;">
         <!-- Header -->
         <header class="bg-blue-600 text-white p-4 rounded-t-lg flex items-center justify-center relative">
-            <img src="logo.png" alt="Logo" class="h-10 w-10 mr-4 rounded-full">
+            <img src="logo.png" alt="Logo" class="h-12 mr-4">
             <h1 class="text-2xl font-semibold">Chatbot HHTIP Demo</h1>
         </header>
 
@@ -75,6 +75,44 @@
     </div>
 
     <script>
+        // --- SCRIPT BẢO VỆ MÃ NGUỒN ---
+        // Lưu ý: Các biện pháp này chỉ mang tính răn đe, không thể ngăn chặn hoàn toàn.
+        // Người dùng có kinh nghiệm vẫn có thể xem được mã nguồn.
+
+        // Vô hiệu hóa chuột phải
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // Vô hiệu hóa các phím tắt để xem mã nguồn
+        document.onkeydown = function(e) {
+            // Chặn F12
+            if (e.keyCode == 123) {
+                return false;
+            }
+            // Chặn Ctrl+Shift+I
+            if (e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) {
+                return false;
+            }
+            // Chặn Ctrl+Shift+C
+            if (e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) {
+                return false;
+            }
+            // Chặn Ctrl+Shift+J
+            if (e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) {
+                return false;
+            }
+            // Chặn Ctrl+U
+            if (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) {
+                return false;
+            }
+            // Chặn Ctrl+S
+            if (e.ctrlKey && e.keyCode == 'S'.charCodeAt(0)) {
+                return false;
+            }
+        };
+
+        // --- KẾT THÚC SCRIPT BẢO VỆ ---
+
+
         // DOM Elements
         const chatbox = document.getElementById('chatbox');
         const userInput = document.getElementById('userInput');
