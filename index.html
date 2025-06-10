@@ -64,11 +64,11 @@
         <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
             <div class="flex items-center space-x-3">
                 <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.xlsx,.xls,.pptx">
-                <button id="uploadButton" class="flex items-center px-4 py-2 bg-gray-300 text-gray-500 rounded-lg transition-colors cursor-not-allowed" disabled>
+                <button id="uploadButton" class="flex items-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                     </svg>
-                    <span id="uploadButtonText">Đang tải...</span>
+                    <span>Tải tệp</span>
                 </button>
                 <input type="text" id="userInput" class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="Nhập câu hỏi của bạn...">
                 <button id="sendButton" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150">
@@ -83,7 +83,13 @@
         <p>Số lượt truy cập: <span id="visitorCount" class="font-bold">...</span></p>
     </footer>
 
-    <!-- Use type="module" for Firebase imports -->
+    <!-- Libraries for file parsing. Loaded here for reliability. -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+    <!-- Main Application Logic (Module) -->
     <script type="module">
         // Import Firebase services
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -96,7 +102,6 @@
         const sendButton = document.getElementById('sendButton');
         const loadingIndicator = document.getElementById('loadingIndicator');
         const uploadButton = document.getElementById('uploadButton');
-        const uploadButtonText = document.getElementById('uploadButtonText');
         const fileInput = document.getElementById('fileInput');
         const fileStatus = document.getElementById('fileStatus');
         const visitorCountSpan = document.getElementById('visitorCount');
@@ -104,167 +109,113 @@
         // State
         let chatHistory = [];
         let uploadedFileContent = null; 
-        
-        // --- NEW: Robust Dynamic Script Loading ---
-        
-        /**
-         * Dynamically loads a script and returns a promise that resolves when it's loaded.
-         * @param {string} url The URL of the script to load.
-         * @returns {Promise<void>}
-         */
-        function loadScript(url) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = url;
-                script.onload = () => resolve();
-                script.onerror = () => reject(new Error(`Failed to load script: ${url}`));
-                document.head.appendChild(script);
+
+        // --- Firebase Initialization ---
+        const firebaseConfig = {
+            // apiKey: "AIza....",
+            // authDomain: "your-project-id.firebaseapp.com",
+            // projectId: "your-project-id",
+            // storageBucket: "your-project-id.appspot.com",
+            // messagingSenderId: "...",
+            // appId: "1:..."
+        };
+        const appId = firebaseConfig.projectId || 'default-chatbot-app';
+
+        let db, storage;
+        if (firebaseConfig && firebaseConfig.apiKey) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                storage = getStorage(app);
+                initializeVisitorCounter();
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                visitorCountSpan.textContent = 'Lỗi kết nối';
+            }
+        } else {
+            console.warn("Firebase config is missing. Visitor counter and file storage are disabled.");
+            visitorCountSpan.textContent = 'Chưa cấu hình';
+        }
+
+        // --- Visitor Counter Logic ---
+        async function initializeVisitorCounter() {
+            if (!db) return;
+            const counterRef = doc(db, `artifacts/${appId}/public/data/counters`, "page_visits");
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const counterDoc = await transaction.get(counterRef);
+                    const newCount = (counterDoc.exists() ? counterDoc.data().count : 0) + 1;
+                    transaction.set(counterRef, { count: newCount });
+                });
+            } catch (e) { console.error("Failed to increment visitor count:", e); }
+            onSnapshot(counterRef, (doc) => {
+                visitorCountSpan.textContent = doc.exists() ? doc.data().count.toLocaleString('vi-VN') : '1';
+            }, (error) => {
+                console.error("Error listening to visitor count:", error);
+                visitorCountSpan.textContent = 'N/A';
             });
         }
 
-        /**
-         * Loads all necessary external libraries for file parsing.
-         */
-        async function loadDependencies() {
-            const libraries = [
-                "https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.min.js",
-                "https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js",
-                "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
-                "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
-            ];
-            
+        // --- File Handling Logic ---
+        uploadButton.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileSelect);
+
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            setFileStatus(`Đang xử lý tệp: ${file.name}...`, true);
+            uploadedFileContent = null; 
+
             try {
-                await Promise.all(libraries.map(url => loadScript(url)));
-                // Set PDF.js worker source once all scripts are loaded
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
-                return true;
+                if (storage) {
+                    const storageRef = ref(storage, `artifacts/${appId}/public/uploads/${Date.now()}-${file.name}`);
+                    await uploadBytes(storageRef, file);
+                    console.log('File uploaded to Firebase Storage successfully.');
+                } else {
+                    console.log('Firebase Storage is not configured. Skipping file upload.');
+                }
+
+                const arrayBuffer = await file.arrayBuffer();
+                const fileName = file.name.toLowerCase();
+                let text = '';
+
+                if (fileName.endsWith('.pdf')) text = await extractTextFromPdf(arrayBuffer);
+                else if (fileName.endsWith('.docx')) text = await extractTextFromDocx(arrayBuffer);
+                else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) text = await extractTextFromXlsx(arrayBuffer);
+                else if (fileName.endsWith('.pptx')) text = await extractTextFromPptx(arrayBuffer);
+                else throw new Error('Định dạng tệp không được hỗ trợ.');
+                
+                const MAX_CHARS = 150000;
+                if (text.length > MAX_CHARS) {
+                    uploadedFileContent = text.substring(0, MAX_CHARS);
+                    setFileStatus(`Đã tải lên: ${file.name}. Lưu ý: Nội dung tệp quá dài, đã cắt bớt để phân tích.`, false);
+                } else {
+                    uploadedFileContent = text;
+                    setFileStatus(`Đã tải lên: ${file.name}. Bây giờ hãy đặt câu hỏi về nội dung tệp.`, false);
+                }
+
             } catch (error) {
-                console.error("A required library failed to load:", error);
-                return false;
+                console.error('File processing/upload error:', error);
+                setFileStatus(`Lỗi: ${error.message}`, false);
+                uploadedFileContent = null;
+            } finally {
+                fileInput.value = '';
             }
         }
 
-        // --- Main Application Logic ---
-        
-        async function main() {
-            // Wait for dependencies to load
-            const dependenciesLoaded = await loadDependencies();
-
-            if (dependenciesLoaded) {
-                // Enable the upload button
-                uploadButton.disabled = false;
-                uploadButton.classList.remove('cursor-not-allowed', 'bg-gray-300', 'text-gray-500');
-                uploadButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
-                uploadButtonText.textContent = 'Tải tệp';
-                console.log("File parsing libraries loaded, upload enabled.");
-            } else {
-                // Keep button disabled and show error
-                uploadButtonText.textContent = 'Lỗi tải tệp';
-                addMessage("Lỗi: Không thể tải các thư viện phân tích tệp. Vui lòng làm mới trang.", "system");
-            }
-
-            // --- Firebase Initialization ---
-            const firebaseConfig = {
-                // apiKey: "AIza....",
-                // authDomain: "your-project-id.firebaseapp.com",
-                // projectId: "your-project-id",
-                // storageBucket: "your-project-id.appspot.com",
-                // messagingSenderId: "...",
-                // appId: "1:..."
-            };
-            const appId = firebaseConfig.projectId || 'default-chatbot-app';
-
-            let db, storage;
-            if (firebaseConfig && firebaseConfig.apiKey) {
-                try {
-                    const app = initializeApp(firebaseConfig);
-                    db = getFirestore(app);
-                    storage = getStorage(app);
-                    initializeVisitorCounter();
-                } catch (e) {
-                    console.error("Firebase initialization failed:", e);
-                    visitorCountSpan.textContent = 'Lỗi kết nối';
-                }
-            } else {
-                console.warn("Firebase config is missing. Visitor counter and file storage are disabled.");
-                visitorCountSpan.textContent = 'Chưa cấu hình';
-            }
-
-            // --- Visitor Counter Logic ---
-            async function initializeVisitorCounter() {
-                if (!db) return;
-                const counterRef = doc(db, `artifacts/${appId}/public/data/counters`, "page_visits");
-                try {
-                    await runTransaction(db, async (transaction) => {
-                        const counterDoc = await transaction.get(counterRef);
-                        const newCount = (counterDoc.exists() ? counterDoc.data().count : 0) + 1;
-                        transaction.set(counterRef, { count: newCount });
-                    });
-                } catch (e) { console.error("Failed to increment visitor count:", e); }
-                onSnapshot(counterRef, (doc) => {
-                    visitorCountSpan.textContent = doc.exists() ? doc.data().count.toLocaleString('vi-VN') : '1';
-                }, (error) => {
-                    console.error("Error listening to visitor count:", error);
-                    visitorCountSpan.textContent = 'N/A';
-                });
-            }
-
-            // --- File Handling Logic ---
-            uploadButton.addEventListener('click', () => fileInput.click());
-            fileInput.addEventListener('change', handleFileSelect);
-
-            async function handleFileSelect(event) {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                setFileStatus(`Đang xử lý tệp: ${file.name}...`, true);
-                uploadedFileContent = null; 
-
-                try {
-                    if (storage) {
-                        const storageRef = ref(storage, `artifacts/${appId}/public/uploads/${Date.now()}-${file.name}`);
-                        await uploadBytes(storageRef, file);
-                        console.log('File uploaded to Firebase Storage successfully.');
-                    } else {
-                        console.log('Firebase Storage is not configured. Skipping file upload.');
-                    }
-
-                    const arrayBuffer = await file.arrayBuffer();
-                    const fileName = file.name.toLowerCase();
-                    let text = '';
-
-                    if (fileName.endsWith('.pdf')) text = await extractTextFromPdf(arrayBuffer);
-                    else if (fileName.endsWith('.docx')) text = await extractTextFromDocx(arrayBuffer);
-                    else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) text = await extractTextFromXlsx(arrayBuffer);
-                    else if (fileName.endsWith('.pptx')) text = await extractTextFromPptx(arrayBuffer);
-                    else throw new Error('Định dạng tệp không được hỗ trợ.');
-                    
-                    const MAX_CHARS = 150000;
-                    if (text.length > MAX_CHARS) {
-                        uploadedFileContent = text.substring(0, MAX_CHARS);
-                        setFileStatus(`Đã tải lên: ${file.name}. Lưu ý: Nội dung tệp quá dài, đã cắt bớt để phân tích.`, false);
-                    } else {
-                        uploadedFileContent = text;
-                        setFileStatus(`Đã tải lên: ${file.name}. Bây giờ hãy đặt câu hỏi về nội dung tệp.`, false);
-                    }
-
-                } catch (error) {
-                    console.error('File processing/upload error:', error);
-                    setFileStatus(`Lỗi: ${error.message}`, false);
-                    uploadedFileContent = null;
-                } finally {
-                    fileInput.value = '';
-                }
-            }
-        }
-        
         function setFileStatus(message, showLoading) {
             fileStatus.textContent = message;
             fileStatus.classList.remove('hidden');
         }
         
         // --- Text Extraction Functions ---
+
         async function extractTextFromPdf(arrayBuffer) {
+            if (typeof window.pdfjsLib === 'undefined') {
+                throw new Error('Thư viện PDF.js chưa được tải hoặc bị chặn. Vui lòng làm mới trang.');
+            }
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
             const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             let allText = '';
             for (let i = 1; i <= pdf.numPages; i++) {
@@ -274,11 +225,19 @@
             }
             return allText;
         }
+
         async function extractTextFromDocx(arrayBuffer) {
+            if (typeof window.mammoth === 'undefined') {
+                throw new Error('Thư viện Word (mammoth.js) chưa được tải hoặc bị chặn. Vui lòng làm mới trang.');
+            }
             const result = await window.mammoth.extractRawText({ arrayBuffer: arrayBuffer });
             return result.value;
         }
+
         async function extractTextFromXlsx(arrayBuffer) {
+             if (typeof window.XLSX === 'undefined') {
+                throw new Error('Thư viện Excel (xlsx.js) chưa được tải hoặc bị chặn. Vui lòng làm mới trang.');
+            }
             const workbook = window.XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
             let allText = '';
             workbook.SheetNames.forEach(sheetName => {
@@ -289,9 +248,10 @@
             });
             return allText;
         }
+
         async function extractTextFromPptx(arrayBuffer) {
             if (typeof window.JSZip === 'undefined') {
-                throw new Error('Thư viện JSZip chưa được tải.');
+                throw new Error('Thư viện PowerPoint (JSZip) chưa được tải hoặc bị chặn. Vui lòng làm mới trang.');
             }
             const zip = await window.JSZip.loadAsync(arrayBuffer);
             const slideFiles = Object.keys(zip.files).filter(name => name.startsWith('ppt/slides/') && name.endsWith('.xml'));
@@ -308,7 +268,9 @@
             return allText;
         }
 
+
         // --- Chat Logic ---
+        
         function addMessage(text, type) {
             const wrapper = document.createElement('div');
             const bubble = document.createElement('div');
@@ -326,6 +288,7 @@
             chatbox.appendChild(wrapper);
             chatbox.scrollTop = chatbox.scrollHeight;
         }
+
         async function sendMessage() {
             let userMessage = userInput.value.trim();
             if (userMessage === '' && !uploadedFileContent) return;
@@ -383,8 +346,6 @@
         sendButton.addEventListener('click', sendMessage);
         userInput.addEventListener('keypress', (e) => e.key === 'Enter' && sendMessage());
         
-        // Start the application
-        main();
     </script>
 </body>
 </html>
