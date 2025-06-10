@@ -50,7 +50,7 @@
         <div id="chatbox" class="flex-1 p-6 space-y-4 overflow-y-auto">
             <div class="flex justify-start">
                 <div class="gemini-message message-bubble">
-                    Xin chào! Bạn có thể đặt câu hỏi hoặc tải tệp (.pdf, .docx, .xlsx, .pptx) lên để tôi phân tích.
+                    Xin chào! Vui lòng chờ trong khi các công cụ phân tích tệp được tải...
                 </div>
             </div>
         </div>
@@ -111,25 +111,36 @@
         let uploadedFileContent = null; 
 
         // --- Library and UI Initialization ---
-        window.addEventListener('load', () => {
-            // Check if all necessary file parsing libraries are loaded on the global window object
-            if (typeof window.pdfjsLib !== 'undefined' && typeof window.mammoth !== 'undefined' && typeof window.XLSX !== 'undefined' && typeof window.JSZip !== 'undefined') {
-                // Set PDF.js worker source once, using the new CDN
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
+        function waitForLibraries(timeout = 10000) {
+            return new Promise((resolve, reject) => {
+                const startTime = Date.now();
+                const checkInterval = setInterval(() => {
+                    if (typeof window.pdfjsLib !== 'undefined' && typeof window.mammoth !== 'undefined' && typeof window.XLSX !== 'undefined' && typeof window.JSZip !== 'undefined') {
+                        clearInterval(checkInterval);
+                        resolve();
+                    } else if (Date.now() - startTime > timeout) {
+                        clearInterval(checkInterval);
+                        reject(new Error("Loading file parsing libraries timed out."));
+                    }
+                }, 200);
+            });
+        }
 
-                // Enable the upload button
+        waitForLibraries()
+            .then(() => {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
                 uploadButton.disabled = false;
                 uploadButton.classList.remove('cursor-not-allowed', 'bg-gray-300', 'text-gray-500');
                 uploadButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
                 uploadButtonText.textContent = 'Tải tệp';
+                addMessage("Các công cụ phân tích tệp đã sẵn sàng.", "system");
                 console.log("File parsing libraries loaded, upload enabled.");
-            } else {
-                // Keep button disabled and show error
+            })
+            .catch((error) => {
                 uploadButtonText.textContent = 'Lỗi tải tệp';
-                console.error("One or more file parsing libraries failed to load.");
+                console.error(error.message);
                 addMessage("Lỗi: Không thể tải các thư viện phân tích tệp. Vui lòng làm mới trang.", "system");
-            }
-        });
+            });
 
 
         // --- Firebase Initialization ---
@@ -357,5 +368,4 @@
         sendButton.addEventListener('click', sendMessage);
         userInput.addEventListener('keypress', (e) => e.key === 'Enter' && sendMessage());
     </script>
-</body>
-</html>
+</bo
