@@ -112,10 +112,10 @@
 
         // --- Library and UI Initialization ---
         window.addEventListener('load', () => {
-            // Check if all necessary file parsing libraries are loaded
-            if (typeof pdfjsLib !== 'undefined' && typeof mammoth !== 'undefined' && typeof XLSX !== 'undefined' && typeof JSZip !== 'undefined') {
+            // Check if all necessary file parsing libraries are loaded on the global window object
+            if (typeof window.pdfjsLib !== 'undefined' && typeof window.mammoth !== 'undefined' && typeof window.XLSX !== 'undefined' && typeof window.JSZip !== 'undefined') {
                 // Set PDF.js worker source once
-                pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
 
                 // Enable the upload button
                 uploadButton.disabled = false;
@@ -234,7 +234,7 @@
         // --- Text Extraction Functions ---
 
         async function extractTextFromPdf(arrayBuffer) {
-            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             let allText = '';
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
@@ -245,27 +245,27 @@
         }
 
         async function extractTextFromDocx(arrayBuffer) {
-            const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+            const result = await window.mammoth.extractRawText({ arrayBuffer: arrayBuffer });
             return result.value;
         }
 
         async function extractTextFromXlsx(arrayBuffer) {
-            const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+            const workbook = window.XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
             let allText = '';
             workbook.SheetNames.forEach(sheetName => {
                 allText += `Sheet: ${sheetName}\n\n`;
                 const worksheet = workbook.Sheets[sheetName];
-                const data = XLSX.utils.sheet_to_csv(worksheet);
+                const data = window.XLSX.utils.sheet_to_csv(worksheet);
                 allText += data + '\n\n';
             });
             return allText;
         }
 
         async function extractTextFromPptx(arrayBuffer) {
-            if (typeof JSZip === 'undefined') {
+            if (typeof window.JSZip === 'undefined') {
                 throw new Error('Thư viện JSZip chưa được tải.');
             }
-            const zip = await JSZip.loadAsync(arrayBuffer);
+            const zip = await window.JSZip.loadAsync(arrayBuffer);
             const slideFiles = Object.keys(zip.files).filter(name => name.startsWith('ppt/slides/') && name.endsWith('.xml'));
 
             let allText = '';
