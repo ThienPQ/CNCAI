@@ -110,22 +110,17 @@
         let uploadedFileContent = null; 
 
         // --- Firebase Initialization ---
-// Các biến giữ chỗ này sẽ được GitHub Actions tự động thay thế khi triển khai.
-const firebaseConfig = {
-    apiKey: "__FIREBASE_API_KEY__",
-    authDomain: "__FIREBASE_AUTH_DOMAIN__",
-    projectId: "__FIREBASE_PROJECT_ID__",
-    storageBucket: "__FIREBASE_STORAGE_BUCKET__",
-    messagingSenderId: "__FIREBASE_MESSAGING_SENDER_ID__",
-    appId: "__FIREBASE_APP_ID__"
-};
-const appId = firebaseConfig.projectId || 'default-chatbot-app';
-
-// Mã khởi tạo còn lại giữ nguyên...
-
+        const firebaseConfig = {
+            // apiKey: "AIza....",
+            // authDomain: "your-project-id.firebaseapp.com",
+            // projectId: "your-project-id",
+            // storageBucket: "your-project-id.appspot.com",
+            // messagingSenderId: "...",
+            // appId: "1:..."
+        };
+        const appId = firebaseConfig.projectId || 'default-chatbot-app';
 
         let db, storage;
-        // Chỉ khởi tạo Firebase nếu cấu hình được cung cấp
         if (firebaseConfig && firebaseConfig.apiKey) {
             try {
                 const app = initializeApp(firebaseConfig);
@@ -145,7 +140,6 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
         async function initializeVisitorCounter() {
             if (!db) return;
             const counterRef = doc(db, `artifacts/${appId}/public/data/counters`, "page_visits");
-
             try {
                 await runTransaction(db, async (transaction) => {
                     const counterDoc = await transaction.get(counterRef);
@@ -153,7 +147,6 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
                     transaction.set(counterRef, { count: newCount });
                 });
             } catch (e) { console.error("Failed to increment visitor count:", e); }
-
             onSnapshot(counterRef, (doc) => {
                 visitorCountSpan.textContent = doc.exists() ? doc.data().count.toLocaleString('vi-VN') : '1';
             }, (error) => {
@@ -179,18 +172,14 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
             uploadedFileContent = null; 
 
             try {
-                // Upload file to Firebase Storage if configured
                 if (storage) {
                     const storageRef = ref(storage, `artifacts/${appId}/public/uploads/${Date.now()}-${file.name}`);
                     await uploadBytes(storageRef, file);
                     console.log('File uploaded to Firebase Storage successfully.');
                 } else {
-                    console.log('Firebase Storage is not configured. Skipping file upload.');
-                    // Notify user that file is not saved
                     addMessage('Lưu ý: Chức năng lưu trữ tệp chưa được cấu hình. Tệp chỉ được phân tích tạm thời.', 'system');
                 }
 
-                // Extract text for Gemini analysis
                 const arrayBuffer = await file.arrayBuffer();
                 const fileName = file.name.toLowerCase();
                 let text = '';
@@ -201,8 +190,15 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
                 else if (fileName.endsWith('.pptx')) text = await extractTextFromPptx(arrayBuffer);
                 else throw new Error('Định dạng tệp không được hỗ trợ.');
                 
-                uploadedFileContent = text;
-                setFileStatus(`Đã tải lên: ${file.name}. Bây giờ hãy đặt câu hỏi về nội dung tệp.`, false);
+                const MAX_CHARS = 150000; // Increased limit slightly
+                if (text.length > MAX_CHARS) {
+                    uploadedFileContent = text.substring(0, MAX_CHARS);
+                    setFileStatus(`Đã tải lên: ${file.name}. Lưu ý: Nội dung tệp quá dài, đã cắt bớt để phân tích.`, false);
+                } else {
+                    uploadedFileContent = text;
+                    setFileStatus(`Đã tải lên: ${file.name}. Bây giờ hãy đặt câu hỏi về nội dung tệp.`, false);
+                }
+
             } catch (error) {
                 console.error('File processing/upload error:', error);
                 setFileStatus(`Lỗi: ${error.message}`, false);
@@ -217,7 +213,6 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
             fileStatus.classList.remove('hidden');
         }
         
-        // ... (Các hàm extractTextFrom... không thay đổi)
         async function extractTextFromPdf(a){const p=await pdfjsLib.getDocument({data:a}).promise;let t="";for(let i=1;i<=p.numPages;i++){const e=await p.getPage(i),c=await e.getTextContent();t+=c.items.map(s=>s.str).join(" ")+"\n"}return t}
         async function extractTextFromDocx(a){const r=await mammoth.extractRawText({arrayBuffer:a});return r.value}
         async function extractTextFromXlsx(a){const w=XLSX.read(new Uint8Array(a),{type:"array"});let t="";return w.SheetNames.forEach(s=>{t+=`Sheet: ${s}\n`;const n=w.Sheets[s],d=XLSX.utils.sheet_to_csv(n);t+=d+"\n\n"}),t}
@@ -235,9 +230,6 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
             } else if (type === 'gemini') {
                 wrapper.classList.add('flex', 'justify-start');
                 bubble.classList.add('message-bubble', 'gemini-message');
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = text; // To parse potential markdown
-                bubble.textContent = tempDiv.textContent || "";
             } else { // 'system'
                 bubble.classList.add('system-message', 'w-full');
             }
@@ -249,7 +241,7 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
         async function sendMessage() {
             let userMessage = userInput.value.trim();
             if (userMessage === '' && !uploadedFileContent) return;
-            if (userMessage === '' && uploadedFileContent) userMessage = "Tóm tắt hoặc phân tích nội dung của tệp này.";
+            if (userMessage === '' && uploadedFileContent) userMessage = "Tóm tắt nội dung chính của tài liệu này.";
             
             addMessage(userMessage, 'user');
             userInput.value = '';
@@ -257,30 +249,38 @@ const appId = firebaseConfig.projectId || 'default-chatbot-app';
 
             let promptToSend = userMessage;
             if (uploadedFileContent) {
-                promptToSend = `Dựa trên nội dung của tài liệu sau:\n\n--- TÀI LIỆU ---\n${uploadedFileContent}\n--- KẾT THÚC TÀI LIỆU ---\n\nHãy trả lời câu hỏi sau: "${userMessage}"`;
-                // addMessage(`Đã sử dụng nội dung từ tệp để trả lời.`, 'system'); // Simplified this
+                promptToSend = `Bối cảnh: Tôi đã cung cấp cho bạn nội dung của một tài liệu. Dựa hoàn toàn vào nội dung đó, hãy trả lời câu hỏi của tôi.\n\nNỘI DUNG TÀI LIỆU:\n"""\n${uploadedFileContent}\n"""\n\nCÂU HỎI:\n${userMessage}`;
                 uploadedFileContent = null;
                 fileStatus.classList.add('hidden');
             }
 
-            chatHistory.push({ role: "user", parts: [{ text: promptToSend }] });
+            const currentTurn = { role: "user", parts: [{ text: promptToSend }] };
+            chatHistory.push(currentTurn);
 
             try {
                 const payload = { contents: chatHistory };
                 const apiKey = "AIzaSyANk-Al0h0ts_EKhOcrV1PhnOIrEIcxBLg";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                 const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error?.message || 'Lỗi kết nối API');
                 }
+
                 const result = await response.json();
-                if (result.candidates?.[0]?.content.parts) {
+                
+                if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts) {
                     const geminiResponse = result.candidates[0].content.parts[0].text;
                     addMessage(geminiResponse, 'gemini');
                     chatHistory.push({ role: "model", parts: [{ text: geminiResponse }] });
                 } else {
-                    addMessage('Xin lỗi, tôi không nhận được phản hồi hợp lệ từ Chat BOT.', 'gemini');
+                    let reason = "Không nhận được phản hồi hợp lệ.";
+                    if (result.promptFeedback && result.promptFeedback.blockReason) {
+                        reason = `Yêu cầu bị chặn vì: ${result.promptFeedback.blockReason}.`;
+                    }
+                    addMessage(`Xin lỗi, ${reason}`, 'gemini');
+                    chatHistory.pop(); 
                 }
             } catch (error) {
                 console.error('Lỗi khi gửi yêu cầu:', error);
