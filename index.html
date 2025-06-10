@@ -69,11 +69,11 @@
         <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
             <div class="flex items-center space-x-3">
                 <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.xlsx,.xls,.pptx">
-                <button id="uploadButton" class="flex items-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                <button id="uploadButton" class="flex items-center px-4 py-2 bg-gray-300 text-gray-500 rounded-lg transition-colors cursor-not-allowed" disabled>
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                     </svg>
-                    Tải tệp
+                    <span id="uploadButtonText">Đang tải...</span>
                 </button>
                 <input type="text" id="userInput" class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" placeholder="Nhập câu hỏi của bạn...">
                 <button id="sendButton" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-150">
@@ -101,6 +101,7 @@
         const sendButton = document.getElementById('sendButton');
         const loadingIndicator = document.getElementById('loadingIndicator');
         const uploadButton = document.getElementById('uploadButton');
+        const uploadButtonText = document.getElementById('uploadButtonText');
         const fileInput = document.getElementById('fileInput');
         const fileStatus = document.getElementById('fileStatus');
         const visitorCountSpan = document.getElementById('visitorCount');
@@ -108,6 +109,28 @@
         // State
         let chatHistory = [];
         let uploadedFileContent = null; 
+
+        // --- Library and UI Initialization ---
+        window.addEventListener('load', () => {
+            // Check if all necessary file parsing libraries are loaded
+            if (typeof pdfjsLib !== 'undefined' && typeof mammoth !== 'undefined' && typeof XLSX !== 'undefined' && typeof JSZip !== 'undefined') {
+                // Set PDF.js worker source once
+                pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
+
+                // Enable the upload button
+                uploadButton.disabled = false;
+                uploadButton.classList.remove('cursor-not-allowed', 'bg-gray-300', 'text-gray-500');
+                uploadButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+                uploadButtonText.textContent = 'Tải tệp';
+                console.log("File parsing libraries loaded, upload enabled.");
+            } else {
+                // Keep button disabled and show error
+                uploadButtonText.textContent = 'Lỗi tải tệp';
+                console.error("One or more file parsing libraries failed to load.");
+                addMessage("Lỗi: Không thể tải các thư viện phân tích tệp. Vui lòng làm mới trang.", "system");
+            }
+        });
+
 
         // --- Firebase Initialization ---
         const firebaseConfig = {
@@ -208,16 +231,9 @@
             fileStatus.classList.remove('hidden');
         }
         
-        // --- Text Extraction Functions (FIXED) ---
+        // --- Text Extraction Functions ---
 
         async function extractTextFromPdf(arrayBuffer) {
-            // Check if the library is loaded and ready
-            if (typeof pdfjsLib === 'undefined') {
-                throw new Error('Thư viện PDF.js chưa tải xong. Vui lòng thử làm mới trang và tải lại tệp.');
-            }
-            // Set the worker source right before using it to ensure it's configured
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
-
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             let allText = '';
             for (let i = 1; i <= pdf.numPages; i++) {
