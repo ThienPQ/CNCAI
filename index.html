@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trò chuyện với Gemini</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Libraries for file parsing -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Libraries for file parsing from jsdelivr CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -114,8 +114,8 @@
         window.addEventListener('load', () => {
             // Check if all necessary file parsing libraries are loaded on the global window object
             if (typeof window.pdfjsLib !== 'undefined' && typeof window.mammoth !== 'undefined' && typeof window.XLSX !== 'undefined' && typeof window.JSZip !== 'undefined') {
-                // Set PDF.js worker source once
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
+                // Set PDF.js worker source once, using the new CDN
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
 
                 // Enable the upload button
                 uploadButton.disabled = false;
