@@ -110,18 +110,19 @@
         let uploadedFileContent = null; 
 
         // --- Firebase Initialization ---
-        // QUAN TRỌNG: Để bật bộ đếm và lưu trữ tệp, hãy thay thế đối tượng trống này bằng
-        // cấu hình Firebase từ dự án của bạn.
-        // Lấy từ: Bảng điều khiển Firebase > Project settings > General > Your apps > Web app > SDK setup and configuration
-        const firebaseConfig = {
-            // apiKey: "AIza....",
-            // authDomain: "your-project-id.firebaseapp.com",
-            // projectId: "your-project-id",
-            // storageBucket: "your-project-id.appspot.com",
-            // messagingSenderId: "...",
-            // appId: "1:..."
-        };
-        const appId = firebaseConfig.projectId || 'default-chatbot-app'; // Use projectId for a unique path
+// Các biến giữ chỗ này sẽ được GitHub Actions tự động thay thế khi triển khai.
+const firebaseConfig = {
+    apiKey: "__FIREBASE_API_KEY__",
+    authDomain: "__FIREBASE_AUTH_DOMAIN__",
+    projectId: "__FIREBASE_PROJECT_ID__",
+    storageBucket: "__FIREBASE_STORAGE_BUCKET__",
+    messagingSenderId: "__FIREBASE_MESSAGING_SENDER_ID__",
+    appId: "__FIREBASE_APP_ID__"
+};
+const appId = firebaseConfig.projectId || 'default-chatbot-app';
+
+// Mã khởi tạo còn lại giữ nguyên...
+
 
         let db, storage;
         // Chỉ khởi tạo Firebase nếu cấu hình được cung cấp
