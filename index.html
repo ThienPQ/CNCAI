@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trò chuyện với CNCAI</title>
+    <title>Trò chuyện với Gemini</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Libraries for file parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.min.js"></script>
@@ -29,23 +29,9 @@
     
     <!-- SCRIPT BẢO VỆ MÃ NGUỒN (CHẠY SỚM) -->
     <script>
-        // Lưu ý: Các biện pháp này chỉ mang tính răn đe, không thể ngăn chặn hoàn toàn.
-        // Người dùng có kinh nghiệm vẫn có thể xem được mã nguồn.
-        
-        // Vô hiệu hóa chuột phải một cách hiệu quả hơn
-        window.addEventListener('contextmenu', function (e) {
-            e.preventDefault();
-        }, false);
-
-        // Vô hiệu hóa các phím tắt
+        window.addEventListener('contextmenu', function (e) { e.preventDefault(); }, false);
         window.addEventListener('keydown', function (e) {
-            // Chặn F12, Ctrl+Shift+I, Ctrl+Shift+C, Ctrl+Shift+J, Ctrl+U, Ctrl+S
-            if (
-                e.key === 'F12' || e.keyCode === 123 ||
-                (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'C' || e.key === 'J')) ||
-                (e.ctrlKey && e.key === 'U') ||
-                (e.ctrlKey && e.key === 'S')
-            ) {
+            if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'C', 'J'].includes(e.key)) || (e.ctrlKey && ['U', 'S'].includes(e.key))) {
                 e.preventDefault();
             }
         });
@@ -53,19 +39,18 @@
 </head>
 <body>
 
-    <div class="w-full max-w-2xl bg-white shadow-xl rounded-lg flex flex-col" style="height: 80vh;">
+    <div class="w-full max-w-2xl bg-white shadow-xl rounded-lg flex flex-col" style="height: 85vh;">
         <!-- Header -->
         <header class="bg-blue-600 text-white p-4 rounded-t-lg flex items-center justify-center relative">
-            <!-- ĐÃ SỬA: Dùng object-contain để giữ đúng tỷ lệ logo -->
-            <img src="logo.png" alt="Logo" class="object-contain h-12 mr-4">
-            <h1 class="text-2xl font-semibold">WELCOME TO HHTIP AI Testing</h1>
+            <img src="logo hhtip.png" alt="Logo" class="object-contain h-12 mr-4">
+            <h1 class="text-2xl font-semibold">Chatbot HHTIP Demo</h1>
         </header>
 
         <!-- Chat messages -->
         <div id="chatbox" class="flex-1 p-6 space-y-4 overflow-y-auto">
             <div class="flex justify-start">
                 <div class="gemini-message message-bubble">
-                    Xin chào! Bạn có thể đặt câu hỏi hoặc tải tệp (.pdf, .docx, .xlsx, .pptx) lên để tôi phân tích. Tôi không chịu trách nhiệm về các nội dung bạn tải lên cũng như việc đảm bảo an toàn an ninh thông tin, dữ liệu mà bạn trao đổi/gửi tôi.
+                    Xin chào! Bạn có thể đặt câu hỏi hoặc tải tệp (.pdf, .docx, .xlsx, .pptx) lên để tôi phân tích.
                 </div>
             </div>
         </div>
@@ -83,7 +68,6 @@
         <!-- Input area -->
         <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
             <div class="flex items-center space-x-3">
-                <!-- File Upload Button -->
                 <input type="file" id="fileInput" class="hidden" accept=".pdf,.docx,.xlsx,.xls,.pptx">
                 <button id="uploadButton" class="flex items-center px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -98,8 +82,19 @@
             </div>
         </div>
     </div>
+    
+    <!-- Visitor Counter Footer -->
+    <footer class="text-center mt-4 text-gray-600">
+        <p>Số lượt truy cập: <span id="visitorCount" class="font-bold">...</span></p>
+    </footer>
 
-    <script>
+    <!-- Use type="module" for Firebase imports -->
+    <script type="module">
+        // Import Firebase services
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+
         // DOM Elements
         const chatbox = document.getElementById('chatbox');
         const userInput = document.getElementById('userInput');
@@ -108,14 +103,54 @@
         const uploadButton = document.getElementById('uploadButton');
         const fileInput = document.getElementById('fileInput');
         const fileStatus = document.getElementById('fileStatus');
+        const visitorCountSpan = document.getElementById('visitorCount');
 
         // State
         let chatHistory = [];
-        let uploadedFileContent = null; // Store extracted text from the file
+        let uploadedFileContent = null; 
+
+        // --- Firebase Initialization ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-chatbot-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+        let db, storage;
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            storage = getStorage(app);
+            initializeVisitorCounter();
+        } catch (e) {
+            console.error("Firebase initialization failed:", e);
+            visitorCountSpan.textContent = 'Lỗi';
+        }
+
+        // --- Visitor Counter Logic ---
+        async function initializeVisitorCounter() {
+            if (!db) return;
+            const counterRef = doc(db, `artifacts/${appId}/public/data/counters`, "page_visits");
+
+            // Increment count in a transaction
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const counterDoc = await transaction.get(counterRef);
+                    const newCount = (counterDoc.exists() ? counterDoc.data().count : 0) + 1;
+                    transaction.set(counterRef, { count: newCount });
+                });
+            } catch (e) {
+                console.error("Failed to increment visitor count:", e);
+            }
+
+            // Listen for real-time updates to the counter
+            onSnapshot(counterRef, (doc) => {
+                visitorCountSpan.textContent = doc.exists() ? doc.data().count.toLocaleString('vi-VN') : '1';
+            }, (error) => {
+                console.error("Error listening to visitor count:", error);
+                visitorCountSpan.textContent = 'N/A';
+            });
+        }
+
 
         // --- File Handling Logic ---
-
-        // Setup PDF.js worker
         if (window.pdfjsLib) {
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
         }
@@ -128,32 +163,35 @@
             if (!file) return;
 
             setFileStatus(`Đang xử lý tệp: ${file.name}...`, true);
-            uploadedFileContent = null; // Reset previous content
+            uploadedFileContent = null; 
 
             try {
-                const arrayBuffer = await file.arrayBuffer();
-                let text = '';
-                const fileName = file.name.toLowerCase();
-
-                if (fileName.endsWith('.pdf')) {
-                    text = await extractTextFromPdf(arrayBuffer);
-                } else if (fileName.endsWith('.docx')) {
-                    text = await extractTextFromDocx(arrayBuffer);
-                } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-                    text = await extractTextFromXlsx(arrayBuffer);
-                } else if (fileName.endsWith('.pptx')) {
-                    text = await extractTextFromPptx(arrayBuffer);
-                } else {
-                    throw new Error('Định dạng tệp không được hỗ trợ.');
+                // Upload file to Firebase Storage for admin review
+                if (storage) {
+                    const storageRef = ref(storage, `artifacts/${appId}/public/uploads/${Date.now()}-${file.name}`);
+                    await uploadBytes(storageRef, file);
+                    console.log('File uploaded to Firebase Storage successfully.');
                 }
+
+                // Extract text for Gemini analysis
+                const arrayBuffer = await file.arrayBuffer();
+                const fileName = file.name.toLowerCase();
+                let text = '';
+
+                if (fileName.endsWith('.pdf')) text = await extractTextFromPdf(arrayBuffer);
+                else if (fileName.endsWith('.docx')) text = await extractTextFromDocx(arrayBuffer);
+                else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) text = await extractTextFromXlsx(arrayBuffer);
+                else if (fileName.endsWith('.pptx')) text = await extractTextFromPptx(arrayBuffer);
+                else throw new Error('Định dạng tệp không được hỗ trợ.');
+                
                 uploadedFileContent = text;
                 setFileStatus(`Đã tải lên: ${file.name}. Bây giờ hãy đặt câu hỏi về nội dung tệp.`, false);
             } catch (error) {
-                console.error('File processing error:', error);
-                setFileStatus(`Lỗi xử lý tệp: ${error.message}`, false);
+                console.error('File processing/upload error:', error);
+                setFileStatus(`Lỗi: ${error.message}`, false);
                 uploadedFileContent = null;
             } finally {
-                fileInput.value = ''; // Allow re-uploading the same file
+                fileInput.value = '';
             }
         }
 
@@ -162,135 +200,75 @@
             fileStatus.classList.remove('hidden');
         }
         
-        async function extractTextFromPdf(arrayBuffer) {
-            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-            let allText = '';
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const textContent = await page.getTextContent();
-                allText += textContent.items.map(item => item.str).join(' ') + '\n';
-            }
-            return allText;
-        }
-
-        async function extractTextFromDocx(arrayBuffer) {
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            return result.value;
-        }
-        
-        async function extractTextFromXlsx(arrayBuffer) {
-            const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-            let allText = '';
-            workbook.SheetNames.forEach(sheetName => {
-                allText += `Sheet: ${sheetName}\n`;
-                const worksheet = workbook.Sheets[sheetName];
-                const data = XLSX.utils.sheet_to_csv(worksheet);
-                allText += data + '\n\n';
-            });
-            return allText;
-        }
-        
-        async function extractTextFromPptx(arrayBuffer) {
-            if (typeof JSZip === 'undefined') {
-                throw new Error('Thư viện JSZip chưa được tải.');
-            }
-            const zip = await JSZip.loadAsync(arrayBuffer);
-            const slideFiles = Object.keys(zip.files).filter(name => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'));
-            let allText = '';
-            
-            const slidePromises = slideFiles.map(fileName => zip.file(fileName).async('string'));
-            const slideContents = await Promise.all(slidePromises);
-
-            for (const slideContent of slideContents) {
-                const textNodes = slideContent.match(/<a:t>.*?<\/a:t>/g) || [];
-                const slideText = textNodes.map(node => node.replace(/<a:t>(.*?)<\/a:t>/, '$1')).join(' ');
-                allText += slideText + '\n';
-            }
-            return allText;
-        }
-
+        // ... (Các hàm extractTextFrom... không thay đổi)
+        async function extractTextFromPdf(a){const p=await pdfjsLib.getDocument({data:a}).promise;let t="";for(let i=1;i<=p.numPages;i++){const e=await p.getPage(i),c=await e.getTextContent();t+=c.items.map(s=>s.str).join(" ")+"\n"}return t}
+        async function extractTextFromDocx(a){const r=await mammoth.extractRawText({arrayBuffer:a});return r.value}
+        async function extractTextFromXlsx(a){const w=XLSX.read(new Uint8Array(a),{type:"array"});let t="";return w.SheetNames.forEach(s=>{t+=`Sheet: ${s}\n`;const n=w.Sheets[s],d=XLSX.utils.sheet_to_csv(n);t+=d+"\n\n"}),t}
+        async function extractTextFromPptx(a){if("undefined"==typeof JSZip)throw new Error("Thư viện JSZip chưa được tải.");const z=await JSZip.loadAsync(a),f=Object.keys(z.files).filter(n=>n.startsWith("ppt/slides/slide")&&n.endsWith(".xml"));let t="";const p=f.map(n=>z.file(n).async("string")),c=await Promise.all(p);for(const s of c){const n=s.match(/<a:t>.*?<\/a:t>/g)||[],o=n.map(e=>e.replace(/<a:t>(.*?)<\/a:t>/,"$1")).join(" ");t+=o+"\n"}return t}
 
         // --- Chat Logic ---
         
         function addMessage(text, type) {
-            const messageWrapper = document.createElement('div');
-            const messageBubble = document.createElement('div');
-            
-            messageBubble.textContent = text;
-            
+            const wrapper = document.createElement('div');
+            const bubble = document.createElement('div');
+            bubble.textContent = text;
             if (type === 'user') {
-                messageWrapper.classList.add('flex', 'justify-end');
-                messageBubble.classList.add('message-bubble', 'user-message');
+                wrapper.classList.add('flex', 'justify-end');
+                bubble.classList.add('message-bubble', 'user-message');
             } else if (type === 'gemini') {
-                messageWrapper.classList.add('flex', 'justify-start');
-                messageBubble.classList.add('message-bubble', 'gemini-message');
+                wrapper.classList.add('flex', 'justify-start');
+                bubble.classList.add('message-bubble', 'gemini-message');
                 const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = text;
-                messageBubble.textContent = tempDiv.textContent || tempDiv.innerText || "";
+                tempDiv.innerHTML = text; // To parse potential markdown
+                bubble.textContent = tempDiv.textContent || "";
             } else { // 'system'
-                messageBubble.classList.add('system-message', 'w-full');
+                bubble.classList.add('system-message', 'w-full');
             }
-
-            messageWrapper.appendChild(messageBubble);
-            chatbox.appendChild(messageWrapper);
+            wrapper.appendChild(bubble);
+            chatbox.appendChild(wrapper);
             chatbox.scrollTop = chatbox.scrollHeight;
         }
 
         async function sendMessage() {
             let userMessage = userInput.value.trim();
-            if (userMessage === '' && !uploadedFileContent) return; 
-            if (userMessage === '' && uploadedFileContent) {
-                userMessage = "Tóm tắt hoặc phân tích nội dung của tệp này.";
-            }
+            if (userMessage === '' && !uploadedFileContent) return;
+            if (userMessage === '' && uploadedFileContent) userMessage = "Tóm tắt hoặc phân tích nội dung của tệp này.";
             
             addMessage(userMessage, 'user');
             userInput.value = '';
             loadingIndicator.classList.remove('hidden');
 
             let promptToSend = userMessage;
-
             if (uploadedFileContent) {
                 promptToSend = `Dựa trên nội dung của tài liệu sau:\n\n--- TÀI LIỆU ---\n${uploadedFileContent}\n--- KẾT THÚC TÀI LIỆU ---\n\nHãy trả lời câu hỏi sau: "${userMessage}"`;
-                addMessage(`Đã sử dụng nội dung từ tệp để trả lời. Để hỏi về một tệp khác, vui lòng tải tệp mới lên.`, 'system');
+                addMessage(`Đã sử dụng nội dung từ tệp để trả lời.`, 'system');
                 uploadedFileContent = null;
-                fileStatus.classList.add('hidden'); 
+                fileStatus.classList.add('hidden');
             }
 
             chatHistory.push({ role: "user", parts: [{ text: promptToSend }] });
 
             try {
-                const payload = {
-                    contents: chatHistory,
-                };
-
+                const payload = { contents: chatHistory };
                 const apiKey = "AIzaSyANk-Al0h0ts_EKhOcrV1PhnOIrEIcxBLg";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error?.message || 'Lỗi kết nối API');
                 }
-
                 const result = await response.json();
-                
-                if (result.candidates && result.candidates[0].content.parts) {
+                if (result.candidates?.[0]?.content.parts) {
                     const geminiResponse = result.candidates[0].content.parts[0].text;
                     addMessage(geminiResponse, 'gemini');
                     chatHistory.push({ role: "model", parts: [{ text: geminiResponse }] });
                 } else {
                     addMessage('Xin lỗi, tôi không nhận được phản hồi hợp lệ từ Chat BOT.', 'gemini');
                 }
-
             } catch (error) {
                 console.error('Lỗi khi gửi yêu cầu:', error);
                 addMessage(`Đã xảy ra lỗi: ${error.message}. Vui lòng thử lại.`, 'gemini');
-                chatHistory.pop(); 
+                chatHistory.pop();
             } finally {
                 loadingIndicator.classList.add('hidden');
             }
