@@ -110,18 +110,34 @@
         let uploadedFileContent = null; 
 
         // --- Firebase Initialization ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-chatbot-app';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        // QUAN TRỌNG: Để bật bộ đếm và lưu trữ tệp, hãy thay thế đối tượng trống này bằng
+        // cấu hình Firebase từ dự án của bạn.
+        // Lấy từ: Bảng điều khiển Firebase > Project settings > General > Your apps > Web app > SDK setup and configuration
+        const firebaseConfig = {
+            // apiKey: "AIza....",
+            // authDomain: "your-project-id.firebaseapp.com",
+            // projectId: "your-project-id",
+            // storageBucket: "your-project-id.appspot.com",
+            // messagingSenderId: "...",
+            // appId: "1:..."
+        };
+        const appId = firebaseConfig.projectId || 'default-chatbot-app'; // Use projectId for a unique path
 
         let db, storage;
-        try {
-            const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            storage = getStorage(app);
-            initializeVisitorCounter();
-        } catch (e) {
-            console.error("Firebase initialization failed:", e);
-            visitorCountSpan.textContent = 'Lỗi';
+        // Chỉ khởi tạo Firebase nếu cấu hình được cung cấp
+        if (firebaseConfig && firebaseConfig.apiKey) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                storage = getStorage(app);
+                initializeVisitorCounter();
+            } catch (e) {
+                console.error("Firebase initialization failed:", e);
+                visitorCountSpan.textContent = 'Lỗi kết nối';
+            }
+        } else {
+            console.warn("Firebase config is missing. Visitor counter and file storage are disabled.");
+            visitorCountSpan.textContent = 'Chưa cấu hình';
         }
 
         // --- Visitor Counter Logic ---
@@ -129,18 +145,14 @@
             if (!db) return;
             const counterRef = doc(db, `artifacts/${appId}/public/data/counters`, "page_visits");
 
-            // Increment count in a transaction
             try {
                 await runTransaction(db, async (transaction) => {
                     const counterDoc = await transaction.get(counterRef);
                     const newCount = (counterDoc.exists() ? counterDoc.data().count : 0) + 1;
                     transaction.set(counterRef, { count: newCount });
                 });
-            } catch (e) {
-                console.error("Failed to increment visitor count:", e);
-            }
+            } catch (e) { console.error("Failed to increment visitor count:", e); }
 
-            // Listen for real-time updates to the counter
             onSnapshot(counterRef, (doc) => {
                 visitorCountSpan.textContent = doc.exists() ? doc.data().count.toLocaleString('vi-VN') : '1';
             }, (error) => {
@@ -166,11 +178,15 @@
             uploadedFileContent = null; 
 
             try {
-                // Upload file to Firebase Storage for admin review
+                // Upload file to Firebase Storage if configured
                 if (storage) {
                     const storageRef = ref(storage, `artifacts/${appId}/public/uploads/${Date.now()}-${file.name}`);
                     await uploadBytes(storageRef, file);
                     console.log('File uploaded to Firebase Storage successfully.');
+                } else {
+                    console.log('Firebase Storage is not configured. Skipping file upload.');
+                    // Notify user that file is not saved
+                    addMessage('Lưu ý: Chức năng lưu trữ tệp chưa được cấu hình. Tệp chỉ được phân tích tạm thời.', 'system');
                 }
 
                 // Extract text for Gemini analysis
@@ -241,7 +257,7 @@
             let promptToSend = userMessage;
             if (uploadedFileContent) {
                 promptToSend = `Dựa trên nội dung của tài liệu sau:\n\n--- TÀI LIỆU ---\n${uploadedFileContent}\n--- KẾT THÚC TÀI LIỆU ---\n\nHãy trả lời câu hỏi sau: "${userMessage}"`;
-                addMessage(`Đã sử dụng nội dung từ tệp để trả lời.`, 'system');
+                // addMessage(`Đã sử dụng nội dung từ tệp để trả lời.`, 'system'); // Simplified this
                 uploadedFileContent = null;
                 fileStatus.classList.add('hidden');
             }
