@@ -50,7 +50,7 @@
         <div id="chatbox" class="flex-1 p-6 space-y-4 overflow-y-auto">
             <div class="flex justify-start">
                 <div class="gemini-message message-bubble">
-                    Xin chào! Vui lòng chờ trong khi các công cụ phân tích tệp được tải...
+                    Xin chào! Bạn có thể đặt câu hỏi hoặc tải tệp (.pdf, .docx, .xlsx, .pptx) lên để tôi phân tích.
                 </div>
             </div>
         </div>
@@ -109,39 +109,6 @@
         // State
         let chatHistory = [];
         let uploadedFileContent = null; 
-
-        // --- Library and UI Initialization ---
-        function waitForLibraries(timeout = 10000) {
-            return new Promise((resolve, reject) => {
-                const startTime = Date.now();
-                const checkInterval = setInterval(() => {
-                    if (typeof window.pdfjsLib !== 'undefined' && typeof window.mammoth !== 'undefined' && typeof window.XLSX !== 'undefined' && typeof window.JSZip !== 'undefined') {
-                        clearInterval(checkInterval);
-                        resolve();
-                    } else if (Date.now() - startTime > timeout) {
-                        clearInterval(checkInterval);
-                        reject(new Error("Loading file parsing libraries timed out."));
-                    }
-                }, 200);
-            });
-        }
-
-        waitForLibraries()
-            .then(() => {
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
-                uploadButton.disabled = false;
-                uploadButton.classList.remove('cursor-not-allowed', 'bg-gray-300', 'text-gray-500');
-                uploadButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
-                uploadButtonText.textContent = 'Tải tệp';
-                addMessage("Các công cụ phân tích tệp đã sẵn sàng.", "system");
-                console.log("File parsing libraries loaded, upload enabled.");
-            })
-            .catch((error) => {
-                uploadButtonText.textContent = 'Lỗi tải tệp';
-                console.error(error.message);
-                addMessage("Lỗi: Không thể tải các thư viện phân tích tệp. Vui lòng làm mới trang.", "system");
-            });
-
 
         // --- Firebase Initialization ---
         const firebaseConfig = {
@@ -294,7 +261,8 @@
 
         // --- Chat Logic ---
         
-        function addMessage(text, type) {
+        // This function must be defined globally to be accessible from the new script.
+        window.addChatMessage = function(text, type) {
             const wrapper = document.createElement('div');
             const bubble = document.createElement('div');
             bubble.textContent = text;
@@ -317,7 +285,7 @@
             if (userMessage === '' && !uploadedFileContent) return;
             if (userMessage === '' && uploadedFileContent) userMessage = "Tóm tắt nội dung chính của tài liệu này.";
             
-            addMessage(userMessage, 'user');
+            addChatMessage(userMessage, 'user');
             userInput.value = '';
             loadingIndicator.classList.remove('hidden');
 
@@ -346,19 +314,19 @@
                 
                 if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts) {
                     const geminiResponse = result.candidates[0].content.parts[0].text;
-                    addMessage(geminiResponse, 'gemini');
+                    addChatMessage(geminiResponse, 'gemini');
                     chatHistory.push({ role: "model", parts: [{ text: geminiResponse }] });
                 } else {
                     let reason = "Không nhận được phản hồi hợp lệ.";
                     if (result.promptFeedback && result.promptFeedback.blockReason) {
                         reason = `Yêu cầu bị chặn vì: ${result.promptFeedback.blockReason}.`;
                     }
-                    addMessage(`Xin lỗi, ${reason}`, 'gemini');
+                    addChatMessage(`Xin lỗi, ${reason}`, 'gemini');
                     chatHistory.pop(); 
                 }
             } catch (error) {
                 console.error('Lỗi khi gửi yêu cầu:', error);
-                addMessage(`Đã xảy ra lỗi: ${error.message}. Vui lòng thử lại.`, 'gemini');
+                addChatMessage(`Đã xảy ra lỗi: ${error.message}. Vui lòng thử lại.`, 'gemini');
                 chatHistory.pop();
             } finally {
                 loadingIndicator.classList.add('hidden');
@@ -368,4 +336,45 @@
         sendButton.addEventListener('click', sendMessage);
         userInput.addEventListener('keypress', (e) => e.key === 'Enter' && sendMessage());
     </script>
-</bo
+
+    <!-- ROBUST LIBRARY CHECKER -->
+    <script>
+        // This script runs in the global scope to reliably check for library loading.
+        function enableUploaderWhenReady() {
+            const uploadButton = document.getElementById('uploadButton');
+            const uploadButtonText = document.getElementById('uploadButtonText');
+            const maxTries = 100; // 100 tries * 100ms = 10 seconds timeout
+            let currentTry = 0;
+
+            const checkInterval = setInterval(() => {
+                currentTry++;
+                const allLoaded = typeof window.pdfjsLib !== 'undefined' && 
+                                  typeof window.mammoth !== 'undefined' && 
+                                  typeof window.XLSX !== 'undefined' && 
+                                  typeof window.JSZip !== 'undefined';
+
+                if (allLoaded) {
+                    clearInterval(checkInterval);
+                    window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.102/build/pdf.worker.min.js`;
+                    uploadButton.disabled = false;
+                    uploadButton.classList.remove('cursor-not-allowed', 'bg-gray-300', 'text-gray-500');
+                    uploadButton.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300');
+                    uploadButtonText.textContent = 'Tải tệp';
+                    console.log("File parsing libraries loaded, upload enabled.");
+                } else if (currentTry > maxTries) {
+                    clearInterval(checkInterval);
+                    uploadButtonText.textContent = 'Lỗi tải tệp';
+                    console.error("One or more file parsing libraries failed to load after 10 seconds.");
+                    // Check if the addChatMessage function is available before calling it
+                    if(window.addChatMessage) {
+                       window.addChatMessage("Lỗi: Không thể tải các thư viện phân tích tệp. Vui lòng làm mới trang.", "system");
+                    }
+                }
+            }, 100);
+        }
+
+        // Start the check after the DOM is ready
+        document.addEventListener('DOMContentLoaded', enableUploaderWhenReady);
+    </script>
+</body>
+</html>
