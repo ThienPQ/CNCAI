@@ -155,12 +155,7 @@
             });
         }
 
-
         // --- File Handling Logic ---
-        if (window.pdfjsLib) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
-        }
-
         uploadButton.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', handleFileSelect);
 
@@ -177,7 +172,7 @@
                     await uploadBytes(storageRef, file);
                     console.log('File uploaded to Firebase Storage successfully.');
                 } else {
-                    addMessage('Lưu ý: Chức năng lưu trữ tệp chưa được cấu hình. Tệp chỉ được phân tích tạm thời.', 'system');
+                    console.log('Firebase Storage is not configured. Skipping file upload.');
                 }
 
                 const arrayBuffer = await file.arrayBuffer();
@@ -190,7 +185,7 @@
                 else if (fileName.endsWith('.pptx')) text = await extractTextFromPptx(arrayBuffer);
                 else throw new Error('Định dạng tệp không được hỗ trợ.');
                 
-                const MAX_CHARS = 150000; // Increased limit slightly
+                const MAX_CHARS = 150000;
                 if (text.length > MAX_CHARS) {
                     uploadedFileContent = text.substring(0, MAX_CHARS);
                     setFileStatus(`Đã tải lên: ${file.name}. Lưu ý: Nội dung tệp quá dài, đã cắt bớt để phân tích.`, false);
@@ -213,10 +208,62 @@
             fileStatus.classList.remove('hidden');
         }
         
-        async function extractTextFromPdf(a){const p=await pdfjsLib.getDocument({data:a}).promise;let t="";for(let i=1;i<=p.numPages;i++){const e=await p.getPage(i),c=await e.getTextContent();t+=c.items.map(s=>s.str).join(" ")+"\n"}return t}
-        async function extractTextFromDocx(a){const r=await mammoth.extractRawText({arrayBuffer:a});return r.value}
-        async function extractTextFromXlsx(a){const w=XLSX.read(new Uint8Array(a),{type:"array"});let t="";return w.SheetNames.forEach(s=>{t+=`Sheet: ${s}\n`;const n=w.Sheets[s],d=XLSX.utils.sheet_to_csv(n);t+=d+"\n\n"}),t}
-        async function extractTextFromPptx(a){if("undefined"==typeof JSZip)throw new Error("Thư viện JSZip chưa được tải.");const z=await JSZip.loadAsync(a),f=Object.keys(z.files).filter(n=>n.startsWith("ppt/slides/slide")&&n.endsWith(".xml"));let t="";const p=f.map(n=>z.file(n).async("string")),c=await Promise.all(p);for(const s of c){const n=s.match(/<a:t>.*?<\/a:t>/g)||[],o=n.map(e=>e.replace(/<a:t>(.*?)<\/a:t>/,"$1")).join(" ");t+=o+"\n"}return t}
+        // --- Text Extraction Functions (FIXED) ---
+
+        async function extractTextFromPdf(arrayBuffer) {
+            // Check if the library is loaded and ready
+            if (typeof pdfjsLib === 'undefined') {
+                throw new Error('Thư viện PDF.js chưa tải xong. Vui lòng thử làm mới trang và tải lại tệp.');
+            }
+            // Set the worker source right before using it to ensure it's configured
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.102/pdf.worker.min.js`;
+
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let allText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                allText += textContent.items.map(item => item.str).join(' ') + '\n';
+            }
+            return allText;
+        }
+
+        async function extractTextFromDocx(arrayBuffer) {
+            const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+            return result.value;
+        }
+
+        async function extractTextFromXlsx(arrayBuffer) {
+            const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+            let allText = '';
+            workbook.SheetNames.forEach(sheetName => {
+                allText += `Sheet: ${sheetName}\n\n`;
+                const worksheet = workbook.Sheets[sheetName];
+                const data = XLSX.utils.sheet_to_csv(worksheet);
+                allText += data + '\n\n';
+            });
+            return allText;
+        }
+
+        async function extractTextFromPptx(arrayBuffer) {
+            if (typeof JSZip === 'undefined') {
+                throw new Error('Thư viện JSZip chưa được tải.');
+            }
+            const zip = await JSZip.loadAsync(arrayBuffer);
+            const slideFiles = Object.keys(zip.files).filter(name => name.startsWith('ppt/slides/') && name.endsWith('.xml'));
+
+            let allText = '';
+            for (const fileName of slideFiles) {
+                const slideContent = await zip.file(fileName).async('string');
+                const textNodes = slideContent.match(/<a:t>.*?<\/a:t>/g) || [];
+                const slideText = textNodes.map(node => node.replace(/<.*?>/g, '')).join(' ');
+                if (slideText) {
+                    allText += slideText + '\n\n';
+                }
+            }
+            return allText;
+        }
+
 
         // --- Chat Logic ---
         
